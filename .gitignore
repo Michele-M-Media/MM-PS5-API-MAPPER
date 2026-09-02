@@ -1,0 +1,24 @@
+# Build products
+output/
+*.o
+*.elf
+*.so
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local console configuration
+ps5_ip.txt
+
+# Runtime captures / resolver output
+LATEST.txt
+full_map_fw_*.jsonl
+full_summary_fw_*.txt
+resolved/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
