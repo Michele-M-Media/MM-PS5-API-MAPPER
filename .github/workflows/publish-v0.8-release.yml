@@ -1,0 +1,33 @@
+name: Publish MM PS5 API Mapper v0.8 Release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-v0.8-release.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify ELF and publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ZIP='release/MM-PS5-API-MAPPER-v0.8-PREBUILT-ELF.zip'
+          ELF='mm_ps5_api_mapper_v0.8_resource_chain_correlation_graph.elf'
+          EXPECTED='2adb6cd3967ec25b5bb93021506cd0360ae254b709d43e66a6b496315fd15a18'
+          unzip -p "$ZIP" "$ELF" > "/tmp/$ELF"
+          ACTUAL=$(sha256sum "/tmp/$ELF" | awk '{print $1}')
+          test "$ACTUAL" = "$EXPECTED"
+          printf '%s  %s\n' "$EXPECTED" "$ELF" > "/tmp/$ELF.sha256"
+          gh release create v0.8 "/tmp/$ELF" "/tmp/$ELF.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target main \
+            --title 'MM PS5 API Mapper v0.8 — Resource Chain Correlation Graph' \
+            --notes 'MM PS5 API Mapper v0.8 is a read-only PS5 research and system-mapping framework. It inventories and correlates observable filesystem/executable data, processes, threads, VM regions, runtime modules, APIs/NIDs, file descriptors and bounded resource objects, /dev nodes, bus devices, drivers, driver methods, and offline evidence-graph relationships. The included ELF is the verified prebuilt v0.8 Resource Chain Correlation Graph payload. SHA-256: 2adb6cd3967ec25b5bb93021506cd0360ae254b709d43e66a6b496315fd15a18.'
