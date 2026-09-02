@@ -1,67 +1,61 @@
 # MM PS5 API Mapper v0.8
 
-**MM PS5 API Mapper** is a read-only PS5 research and system-mapping framework created to build a structured picture of the console surface visible to a payload at runtime.
+**MM PS5 API Mapper** is a read-only PS5 research and system-mapping framework designed to build a structured picture of the console surface visible to a payload at runtime.
 
-Instead of researching one API, module, process, device, descriptor, or subsystem at a time, the mapper collects the observable information in one pipeline, normalizes it, preserves its provenance, and exports it as machine-readable evidence that can be inspected and correlated offline.
+Instead of researching one API, process, module, device, descriptor, or subsystem at a time, the mapper collects the observable information in one pipeline, normalizes it, preserves provenance, and exports it as machine-readable evidence for offline analysis and correlation.
 
-The project is deliberately conservative: **observed data is evidence, not an assumption**. Unknown fields remain raw. Candidate relationships remain candidates. Exact relationships are promoted only when the captured data supports them.
+> **Observed data is evidence, not an assumption.** Unknown fields remain raw, candidate relationships remain candidates, and exact relationships are promoted only when the captured data supports them.
 
 ## What the mapper collects from the PS5
 
-The mapper combines static filesystem analysis with live runtime enumeration.
-
 ### Filesystem and executable surface
 
-It inventories observable filesystem paths and searches the accessible surface for executables and system objects relevant to mapping. For ELF/SELF material it records the metadata needed to describe and cross-reference the executable surface without modifying files on the console.
-
-This layer can provide:
+The mapper inventories observable filesystem paths and executable/system objects relevant to mapping. For ELF/SELF material it can record:
 
 - filesystem inventory records;
 - discovered ELF/SELF objects;
-- executable/module identity information;
+- executable and module identity information;
 - program and dynamic-table metadata;
 - strings and symbol-table evidence where observable;
-- imported/exported symbol information;
-- relocation information;
+- imported and exported symbols;
+- relocations;
 - library/provider relationships;
-- NID-bearing API records that can later be enriched offline.
+- NID-bearing API records for offline enrichment.
 
 ### Process and runtime topology
 
-The live mapper enumerates the observable process graph and records the runtime relationships needed to understand where code and resources exist while the system is running.
-
-It can record:
+The live mapper can record:
 
 - processes and PIDs;
 - loaded runtime modules;
-- dynamic-library sections and runtime tables;
-- imports and exports visible through the mapped runtime structures;
+- runtime dynamic-library structures;
+- imports and exports visible through mapped runtime structures;
 - process-to-module relationships;
 - threads associated with mapped processes;
 - process resource anchors;
-- explicit runtime coverage gaps when a branch cannot be completed safely.
+- explicit coverage gaps when a branch cannot be completed safely.
 
-### Virtual-memory surface
+### Virtual memory
 
-The mapper records the observable VM topology rather than treating a module name as sufficient proof of where it is mapped.
-
-It can capture:
+The mapper records observable VM topology, including:
 
 - process VM-space anchors;
 - VM regions;
 - module-to-VM relationships;
 - clean VM-list terminators;
-- runtime limits or gaps when the observable chain cannot be continued safely.
+- runtime limits and observable gaps.
 
-This allows offline tools to reconstruct relationships such as:
+This allows offline reconstruction of relationships such as:
 
-`process -> VM region -> module -> library -> API`
+```text
+process -> VM region -> module -> library -> API
+```
 
-without embedding a hard-coded firmware map into the repository.
+without hard-coding a firmware map into the source tree.
 
 ### File descriptors and resource objects
 
-The mapper enumerates observable file-descriptor tables and preserves the relationships between a process, an occupied descriptor, and its associated resource/data object.
+The mapper can enumerate observable file-descriptor tables and preserve relationships between processes, descriptors, and associated resources.
 
 It can record:
 
@@ -69,14 +63,14 @@ It can record:
 - occupied file descriptors;
 - descriptor-to-resource anchors;
 - bounded raw resource-object prefixes;
-- aligned pointer-like qwords found inside those bounded observations;
-- clusters of repeated or shared resource evidence for offline analysis.
+- aligned pointer-like qwords inside bounded observations;
+- repeated/shared resource evidence for offline clustering.
 
-Raw resource observations deliberately remain raw when their private field semantics are not independently established. A pointer-looking value is recorded as a **candidate**, not automatically assigned a Sony structure or function name.
+Raw resource observations deliberately remain raw when their undocumented semantics are not independently established.
 
-### `/dev`, hardware bus, devices, and drivers
+### `/dev`, bus, devices, and drivers
 
-The mapper also builds an observable hardware-resource graph from the source-grounded bus/device surface available to the payload.
+The mapper can build an observable hardware-resource graph from the surface available to the payload.
 
 It can record:
 
@@ -84,20 +78,16 @@ It can record:
 - bus-list anchors and traversal state;
 - observable bus devices;
 - bounded raw candidate values associated with bus nodes;
-- printable candidate strings discovered in bounded observations;
+- printable candidate strings from bounded observations;
 - driver objects;
 - driver method-table observations;
-- softc/resource anchors where the mapped structure exposes them;
-- bus-list terminators and consistency information;
-- snapshot-stability evidence for the captured traversal.
-
-The PC-side resolver can then compare independently captured addresses and build exact or candidate relationships between the FD/resource graph and the bus/device/driver graph.
+- softc/resource anchors where exposed;
+- traversal terminators and consistency information;
+- snapshot-stability evidence.
 
 ### APIs, symbols, NIDs, and metadata enrichment
 
-The raw console map can be enriched offline using the included tools and available development metadata.
-
-The toolchain can use:
+The raw map can be enriched offline with:
 
 - PS5 Payload SDK metadata;
 - installed SDK libraries where available;
@@ -106,13 +96,13 @@ The toolchain can use:
 - aerolib/NID metadata;
 - static and runtime symbol records captured by the mapper.
 
-This allows unresolved NIDs and symbol relationships to be turned into a more useful developer-facing API database without requiring those databases to be hard-coded into the payload.
+This lets unresolved NIDs and symbol relationships become a more useful developer-facing API dataset without baking those databases into the payload.
 
 ## What the mapper correlates
 
-Collecting isolated objects is only the first step. MM PS5 API Mapper is designed to build an **evidence graph**.
+MM PS5 API Mapper is designed to build an **evidence graph**, not only isolated dumps.
 
-Depending on the captured surface, the offline pipeline can correlate relationships such as:
+Depending on the captured surface, the offline pipeline can correlate:
 
 - process -> thread;
 - process -> VM space -> VM region;
@@ -125,23 +115,23 @@ Depending on the captured surface, the offline pipeline can correlate relationsh
 - resource pointer candidate -> independently captured object address;
 - `/dev` name -> bus/device lexical candidate.
 
-An **exact pointer match** means numeric equality between independently captured addresses. It does not automatically assign an undocumented private field name. Lexical matches and structural similarities remain explicitly marked as candidates.
+An **exact pointer match** means numeric equality between independently captured addresses. It does not automatically assign an undocumented private field name. Lexical and structural similarities remain explicitly marked as candidates.
 
-## Data and evidence policy
+## Evidence policy
 
-MM PS5 API Mapper follows several rules intended to keep its output useful and reproducible:
+The mapper follows a conservative evidence model:
 
 - read-only observation is preferred over active probing;
 - unknown fields stay unknown instead of receiving invented names;
 - candidate pointers are not automatically dereferenced;
 - discovered APIs are not automatically executed;
-- API presence does not prove that the caller has permission to use it;
-- repeated bytes may form a fingerprint family without claiming undocumented semantics;
+- API presence does not prove permission to invoke it;
+- repeated bytes may form fingerprint families without claiming undocumented semantics;
 - exact correlations require independently captured evidence;
-- coverage gaps and observable limits are emitted explicitly rather than hidden;
-- private console captures and firmware-specific addresses are kept outside the public source tree.
+- coverage gaps and observable limits are emitted explicitly;
+- console captures and firmware-specific addresses are kept separate from the public source code.
 
-Credential, authentication, authid, and capability structures are outside the mapper's output policy.
+Credential, authentication, authid, and capability structures are outside the mapper's public output policy.
 
 ## Output produced by a run
 
@@ -151,9 +141,9 @@ A hardware run writes its capture under:
 /data/MM_PS5_API_MAP/
 ```
 
-The primary capture is JSONL so each record is independently parseable and can be processed without loading one giant proprietary database format.
+The primary capture format is JSONL so each record remains independently parseable.
 
-The included PC-side tools can derive CSV/JSON datasets for areas including:
+The included PC-side tools can derive CSV/JSON datasets for:
 
 - filesystem/executable inventory;
 - processes and runtime modules;
@@ -167,43 +157,38 @@ The included PC-side tools can derive CSV/JSON datasets for areas including:
 - driver methods and resource anchors;
 - exact pointer joins;
 - candidate lexical joins;
-- resource clusters/fingerprints;
+- resource clusters and fingerprints;
 - graph edges;
 - coverage and observable-limit reports.
 
-See [`docs/OUTPUT_FORMAT.md`](docs/OUTPUT_FORMAT.md) and [`docs/SNAPSHOT_WORKFLOW.md`](docs/SNAPSHOT_WORKFLOW.md) for the processing workflow.
+See [`docs/OUTPUT_FORMAT.md`](docs/OUTPUT_FORMAT.md) and [`docs/SNAPSHOT_WORKFLOW.md`](docs/SNAPSHOT_WORKFLOW.md).
 
 ## Why this exists for developers
 
-A major goal of MM PS5 API Mapper is to give developers a reusable starting point for PS5 research and homebrew development.
+The project is intended as a reusable research layer for PS5 development rather than a one-off dump payload.
 
-A developer can use mapper output to:
+Mapper output can help developers:
 
-- discover which libraries and APIs are visible on a target console;
+- discover visible libraries, modules, and APIs;
 - resolve NIDs against available SDK/header metadata;
-- understand which modules are loaded by which processes;
+- understand process, thread, and VM topology;
 - correlate runtime modules with VM regions;
-- inspect process/thread topology;
-- study descriptor and resource relationships without guessing private layouts;
+- inspect descriptor/resource relationships without guessing undocumented layouts;
 - compare device and driver surfaces;
-- build firmware-by-firmware datasets externally without polluting the source tree with hard-coded captures;
-- compare two captures and identify what stayed stable or changed;
-- build diagnostic, telemetry, visualization, compatibility, or research tools on top of a structured map;
-- use one indexed evidence database instead of repeating the same low-level discovery work for every new project.
+- build external firmware-by-firmware datasets;
+- compare captures and identify stable versus changing relationships;
+- build diagnostics, telemetry, visualization, compatibility, or research tools;
+- reuse one structured evidence database instead of repeating low-level discovery for every project.
 
-In other words, the mapper is not intended to be only a one-off dump payload. It is a **mapping framework and reusable developer dataset generator**.
+## Evidence states
 
-## What the project does not claim
-
-A mapped object is not automatically a supported API contract. A discovered function is not automatically callable. A pointer-looking value is not automatically a known structure member. A device name is not automatically proof of a direct driver relationship.
-
-The mapper separates:
+The mapper intentionally separates:
 
 - **observed** — directly captured evidence;
 - **exactly correlated** — independently captured values that match exactly;
-- **candidate** — useful correlation evidence that still needs confirmation;
+- **candidate** — useful relationships that still require confirmation;
 - **unknown/raw** — preserved data with no invented semantic label;
-- **coverage gap / observable limit** — a branch the mapper intentionally did not pretend to understand.
+- **coverage gap / observable limit** — a branch intentionally left unresolved.
 
 ## Repository layout
 
@@ -213,7 +198,6 @@ include/    mapper and parser headers
 tools/      offline resolver, comparison, SDK/header/NID enrichment tools
 tests/      synthetic host-side regression tests
 docs/       output format, workflow, test plan, and technical references
-release/    optional prebuilt release artifact and checksum
 ```
 
 Important root files:
@@ -243,17 +227,31 @@ ps5_ip.txt.example -> ps5_ip.txt
 
 and set the console address locally. `ps5_ip.txt` is ignored by Git.
 
-## Prebuilt ELF
+## Official public prebuilt ELF
 
-When included in `release/`, the prebuilt ELF corresponds to the v0.8 Resource Chain Correlation Graph build. A SHA-256 file is supplied beside it so the artifact can be verified independently.
+The official **MM PS5 API Mapper v0.8** prebuilt ELF is publicly distributed through the GitHub **Releases** page. It is not stored inside the source tree.
 
-The public prebuilt ELF is stripped of compiler debug information that exposes local build paths; runtime code and the embedded mapper version remain intact.
+**Public Release:** [v0.8 — Resource Chain Correlation Graph](https://github.com/Michele-M-Media/MM-PS5-API-MAPPER/releases/tag/v0.8)
+
+Official asset:
+
+```text
+mm_ps5_api_mapper_v0.8_resource_chain_correlation_graph.elf
+```
+
+SHA-256:
+
+```text
+2adb6cd3967ec25b5bb93021506cd0360ae254b709d43e66a6b496315fd15a18
+```
+
+A matching `.sha256` file is attached to the same public GitHub Release. The ELF in Releases is the official downloadable v0.8 prebuilt and is publicly available.
 
 ## Validation policy
 
 Host-side tests validate what can be tested without a console, including parser behavior, runtime-layout code paths, resolver behavior, SDK-layout fallbacks, and structural assertions.
 
-Hardware and firmware validation belongs in external test results. The clean source repository intentionally contains **no private console capture, local IP, firmware-specific address dump, or personal hardware baseline**.
+Hardware and firmware validation results are kept separate from the clean source repository. The repository itself intentionally contains no console captures, local IPs, firmware-specific address dumps, or personal hardware baselines. This separation does **not** apply to the official ELF release, which is public and downloadable from GitHub Releases.
 
 ## License
 
