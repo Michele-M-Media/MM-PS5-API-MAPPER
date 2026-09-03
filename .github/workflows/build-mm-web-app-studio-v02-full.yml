@@ -96,12 +96,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = Resolve-Path 'dist\MM-PS5-WEB-APP-STUDIO-v0.2-FULL.exe'
+          $exe = (Resolve-Path 'dist\MM-PS5-WEB-APP-STUDIO-v0.2-FULL.exe').Path
           $self = Join-Path $PWD 'dist\selftest'
-          & $exe --self-test --self-test-output $self
-          if ($LASTEXITCODE -ne 0) {
+          $p = Start-Process -FilePath $exe -ArgumentList @('--self-test','--self-test-output',$self) -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
             if (Test-Path "$self\SELF-TEST-FAIL.txt") { Get-Content "$self\SELF-TEST-FAIL.txt" }
-            throw "Packaged EXE self-test failed: $LASTEXITCODE"
+            throw "Packaged EXE self-test failed: $($p.ExitCode)"
           }
           if (!(Test-Path "$self\SELF-TEST-PASS.txt")) { throw 'SELF-TEST-PASS.txt missing' }
           Get-Content "$self\SELF-TEST-PASS.txt"
