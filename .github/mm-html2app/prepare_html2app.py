@@ -27,7 +27,7 @@ copy_block = r'''def copy_project(selected, stage_www):
     shutil.copy2(selected, target)
     return target
 '''
-s = re.sub(r'def copy_project\(selected, stage_www\):.*?(?=\ndef patch_websrv_title)', copy_block.rstrip(), s, flags=re.S)
+s = re.sub(r'def copy_project\(selected, stage_www\):.*?(?=\ndef patch_websrv_title)', lambda m: copy_block.rstrip(), s, flags=re.S)
 
 # Inject controller compatibility directly inside index.html. The generated PS5 app therefore
 # still consists of one HTML document from websrv's point of view.
@@ -47,7 +47,7 @@ inline_block = r'''def inject_runtime(index_path, mapping, right_stick_mouse=Tru
         text += inline
     index_path.write_text(text, encoding="utf-8")
 '''
-s = re.sub(r'def inject_runtime\(index_path, mapping, right_stick_mouse=True\):.*?(?=\ndef copy_project)', inline_block.rstrip(), s, flags=re.S)
+s = re.sub(r'def inject_runtime\(index_path, mapping, right_stick_mouse=True\):.*?(?=\ndef copy_project)', lambda m: inline_block.rstrip(), s, flags=re.S)
 
 # Output paths must remain valid while clang works from a temporary directory.
 s = s.replace('outdir=Path(output_dir or (app_root()/"output")); outdir.mkdir(parents=True,exist_ok=True)',
