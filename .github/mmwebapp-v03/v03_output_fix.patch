@@ -1,0 +1,10 @@
+--- a/.github/mmwebapp-v03/studio_v03.py
++++ b/.github/mmwebapp-v03/studio_v03.py
+@@ -321,7 +321,7 @@
+ def compile_payload(project_path,app_name,title_id,icon_path="",background_path="",mapping=None,right_stick_mouse=True,output_dir=None,progress=None):
+     ensure_engine(); title_id=validate_title_id(title_id); mapping=mapping or dict(DEFAULT_MAP)
+-    outdir=Path(output_dir or (app_root()/"output")); outdir.mkdir(parents=True,exist_ok=True)
++    outdir=Path(output_dir or (app_root()/"output")).resolve(); outdir.mkdir(parents=True,exist_ok=True)
+     slug=safe_slug(app_name); work=Path(tempfile.mkdtemp(prefix="mmps5web_"))
+     try:
+         if progress: progress("Staging HTML/CSS/JS...")
