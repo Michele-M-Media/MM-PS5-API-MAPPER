@@ -1,0 +1,25 @@
+name: Build MM PS5 WEB APP STUDIO v0.2 FULL
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-mm-web-app-studio-v02-full.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reconstruct Studio source
+        shell: pwsh
+        run: |
+          $b64 = @'
+          H4sIAIPAmGoC/9V923LbyJLgu76iGhKSf2GnjDJ36zcOZy6zMztzXvm25TJyIY4lghQpHoQTj37nqZIQSboUKd7X2QDhEuqu6vr12zMFP5oWJiCxFtCNxFTAO8A5VmtNfNoJZhCfzwQfT0QHfXINNWMiLlvwhYoDAkUTwvyRvvDOd7xZdvfTdM4o6bdXNj5Nd8TKrsUhFGDsdVp/80io99RFg2kS8tNE2yWgJGMR/8zXkRXnVd4wBTTH1gN0RNZ2w51IjCK56dpdawGFZ24jbTB9JZL09Jm1RPmaPcE6fk7pT5rL10XiVJs/wiZjRBuaMFpJr55abfcPztgm2osBuLO56bFcJQtzcqZkGBvbPiNlvsaVaQcBHcgifdmVXedGawM+xoHZFsjL8/JfG86KyM5D1C3mjdDjST1ZQJchhoKgJ1mvj8G5eNKMkGiCdyi3PziIBhFfEYYo6TIIcwwh1UaDM5SSDnSF9lRGthGDgGcRHAJpmCUnX6+mKUV1TkNZo3RQlh3PyTLVJ7v78hM8fMfpjHmPST9wGPgZv2ZOqx7lNxwoLvPB9ZxPgApaC4XUW4uD4gl9Ur56aD3x0MAfOcQAfx5uhuymTbOC3XTga5wamH4ERqh0PaR4+9gMUHCwhKkkJZb0BzBkPS+q63qBpL9ZVjXLgsUMbRpTp4ei0gNdNvW4B1Moew80HZQNR2fdQEs+DhZF8tw411WVD3u9wdaPfh/+Nxi+6r/q96alGELN9rG3XC57cRrxO/+6micy6gYOUoZpXMFuBTgX9zZMFlJ2zQGpHfan4D7YdrdwLv6y3f1z2P3c774OulfvwmrLwh+C8wEtzl3Pa0ftmtCeBHe6gSMw5MoEIuygA4wApqkZQ3uMexwoXXp21sasQEKAzY4Y6u/Yr5yhUKfCsi/3NXmWpfCrueb...
