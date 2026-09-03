@@ -13,6 +13,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
+      - name: Checkout temporary build inputs
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -21,5 +24,130 @@ jobs:
       - name: Reconstruct Studio source
         shell: pwsh
         run: |
-          $b64 = @'
-          H4sIAIPAmGoC/9V923LbyJLgu76iGhKSf2GnjDJ36zcOZy6zMztzXvm25TJyIY4lghQpHoQTj37nqZIQSboUKd7X2QDhEuqu6vr12zMFP5oWJiCxFtCNxFTAO8A5VmtNfNoJZhCfzwQfT0QHfXINNWMiLlvwhYoDAkUTwvyRvvDOd7xZdvfTdM4o6bdXNj5Nd8TKrsUhFGDsdVp/80io99RFg2kS8tNE2yWgJGMR/8zXkRXnVd4wBTTH1gN0RNZ2w51IjCK56dpdawGFZ24jbTB9JZL09Jm1RPmaPcE6fk7pT5rL10XiVJs/wiZjRBuaMFpJr55abfcPztgm2osBuLO56bFcJQtzcqZkGBvbPiNlvsaVaQcBHcgifdmVXedGawM+xoHZFsjL8/JfG86KyM5D1C3mjdDjST1ZQJchhoKgJ1mvj8G5eNKMkGiCdyi3PziIBhFfEYYo6TIIcwwh1UaDM5SSDnSF9lRGthGDgGcRHAJpmCUnX6+mKUV1TkNZo3RQlh3PyTLVJ7v78hM8fMfpjHmPST9wGPgZv2ZOqx7lNxwoLvPB9ZxPgApaC4XUW4uD4gl9Ur56aD3x0MAfOcQAfx5uhuymTbOC3XTga5wamH4ERqh0PaR4+9gMUHCwhKkkJZb0BzBkPS+q63qBpL9ZVjXLgsUMbRpTp4ei0gNdNvW4B1Moew80HZQNR2fdQEs+DhZF8tw411WVD3u9wdaPfh/+Nxi+6r/q96alGELN9rG3XC57cRrxO/+6micy6gYOUoZpXMFuBTgX9zZMFlJ2zQGpHfan4D7YdrdwLv6y3f1z2P3c774OulfvwmrLwh+C8wEtzl3Pa0ftmtCeBHe6gSMw5MoEIuygA4wApqkZQ3uMexwoXXp21sasQEKAzY4Y6u/Yr5yhUKfCsi/3NXmWpfCrueb...
+          $parts = 0..4 | ForEach-Object { Get-Content ".github/mmwebapp-v02-src/part$_.txt" -Raw }
+          ($parts -join '') | Set-Content source.b64 -NoNewline
+          python -c "import base64,gzip,pathlib; pathlib.Path('studio.py').write_bytes(gzip.decompress(base64.b64decode(pathlib.Path('source.b64').read_text())))"
+          python -m py_compile studio.py
+          $sha = (Get-FileHash studio.py -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne '534b5b0e43fb7a198a419294f208673418f40e9966311e88ad6d4c4db3d02aa8') { throw "Studio source SHA mismatch: $sha" }
+
+      - name: Stage official PS5 SDK v0.43
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path engine\sdk | Out-Null
+          Invoke-WebRequest 'https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip' -OutFile sdk.zip
+          $h = (Get-FileHash sdk.zip -Algorithm SHA256).Hash.ToLower()
+          if ($h -ne 'a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb') { throw "SDK SHA mismatch: $h" }
+          Expand-Archive sdk.zip sdk-unpack -Force
+          $wrapper = Get-ChildItem sdk-unpack -Filter prospero-clang.cmd -Recurse | Where-Object { $_.FullName -match '[\\/]win[\\/]prospero-clang\.cmd$' } | Select-Object -First 1
+          if (-not $wrapper) { throw 'prospero-clang.cmd not found' }
+          $sdkRoot = Split-Path (Split-Path $wrapper.FullName -Parent) -Parent
+          Copy-Item (Join-Path $sdkRoot '*') engine\sdk -Recurse -Force
+          if (!(Test-Path engine\sdk\win\prospero-lld.exe)) { throw 'prospero-lld.exe missing' }
+
+      - name: Stage LLVM 18.1.8 Windows engine
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $PWD 'LLVM-18.1.8-win64.exe'
+          $full = Join-Path $PWD 'llvmfull'
+          Invoke-WebRequest 'https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe' -OutFile $installer
+          $p = Start-Process $installer -ArgumentList '/S',"/D=$full" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "LLVM installer failed: $($p.ExitCode)" }
+          if (!(Test-Path "$full\bin\clang.exe") -or !(Test-Path "$full\bin\ld.lld.exe")) { throw 'LLVM tools missing' }
+          New-Item -ItemType Directory -Force engine\llvm\bin | Out-Null
+          Copy-Item "$full\bin\clang.exe" engine\llvm\bin\clang.exe -Force
+          Copy-Item "$full\bin\ld.lld.exe" engine\llvm\bin\ld.lld.exe -Force
+          Get-ChildItem "$full\bin\*.dll" | Copy-Item -Destination engine\llvm\bin -Force
+          $resource = (& "$full\bin\clang.exe" -print-resource-dir).Trim()
+          $rel = $resource.Substring($full.Length).TrimStart('\','/')
+          $dst = Join-Path 'engine\llvm' $rel
+          New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+          Copy-Item $resource $dst -Recurse -Force
+          & engine\llvm\bin\clang.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded clang cannot execute' }
+
+      - name: Smoke-test embedded PS5 compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Content smoke.c 'int main(void){return 0;}' -Encoding ascii
+          $env:PS5_PAYLOAD_SDK = (Resolve-Path engine\sdk).Path
+          $env:PATH = "$(Resolve-Path engine\llvm\bin);$(Resolve-Path engine\sdk\win);$env:PATH"
+          cmd /d /c "call engine\sdk\win\prospero-clang.cmd smoke.c -O2 -o smoke.elf"
+          if ($LASTEXITCODE -ne 0) { throw 'PS5 compiler smoke test failed' }
+          $b = [IO.File]::ReadAllBytes((Resolve-Path smoke.elf))
+          if ($b.Length -lt 64 -or $b[0] -ne 0x7f -or $b[1] -ne 0x45 -or $b[2] -ne 0x4c -or $b[3] -ne 0x46) { throw 'Smoke output not ELF' }
+          if ($b[18] -ne 0x3e -or $b[19] -ne 0) { throw 'Smoke ELF not x86_64' }
+
+      - name: Install Studio dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pillow
+
+      - name: Build all-in-one EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "MM-PS5-WEB-APP-STUDIO-v0.2-FULL" --add-data "engine;engine" studio.py
+
+      - name: Execute packaged EXE HTML-to-ELF self-test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Resolve-Path 'dist\MM-PS5-WEB-APP-STUDIO-v0.2-FULL.exe'
+          $self = Join-Path $PWD 'dist\selftest'
+          & $exe --self-test --self-test-output $self
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path "$self\SELF-TEST-FAIL.txt") { Get-Content "$self\SELF-TEST-FAIL.txt" }
+            throw "Packaged EXE self-test failed: $LASTEXITCODE"
+          }
+          if (!(Test-Path "$self\SELF-TEST-PASS.txt")) { throw 'SELF-TEST-PASS.txt missing' }
+          Get-Content "$self\SELF-TEST-PASS.txt"
+
+      - name: Validate outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Resolve-Path 'dist\MM-PS5-WEB-APP-STUDIO-v0.2-FULL.exe'
+          $eb = [IO.File]::ReadAllBytes($exe)
+          if ($eb[0] -ne 0x4d -or $eb[1] -ne 0x5a) { throw 'EXE not PE/MZ' }
+          $elf = Get-ChildItem 'dist\selftest\output' -Filter *.elf -Recurse | Select-Object -First 1
+          if (-not $elf) { throw 'Self-test ELF missing' }
+          $b = [IO.File]::ReadAllBytes($elf.FullName)
+          if ($b[0] -ne 0x7f -or $b[1] -ne 0x45 -or $b[2] -ne 0x4c -or $b[3] -ne 0x46 -or $b[18] -ne 0x3e) { throw 'Invalid PS5 ELF' }
+          $exeSha = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $elfSha = (Get-FileHash $elf.FullName -Algorithm SHA256).Hash.ToLower()
+          @(
+            'MM PS5 WEB APP STUDIO v0.2 FULL',
+            'WINDOWS_EXE_SELF_TEST=PASS',
+            'EMBEDDED_WINDOWS_ENGINE=PASS',
+            'EMBEDDED_SDK=v0.43',
+            'EMBEDDED_LLVM=18.1.8',
+            'WSL_REQUIRED=NO',
+            'EXTERNAL_SDK_REQUIRED=NO',
+            'EXTERNAL_LLVM_REQUIRED=NO',
+            'DIRECT_HTML_PICKER=PASS',
+            'HTML_TO_PS5_ELF=PASS',
+            'PS5_ELF_MACHINE=x86_64',
+            'MEDIA_INSTALL_HW_STATUS=NOT_TESTED',
+            'DUALSENSE_HW_STATUS=NOT_TESTED',
+            "EXE_SHA256=$exeSha",
+            "EXE_SIZE=$($eb.Length)",
+            "SELFTEST_ELF_SHA256=$elfSha",
+            "SELFTEST_ELF_SIZE=$($b.Length)"
+          ) | Out-File 'dist\BUILD-INFO.txt' -Encoding utf8
+          Get-Content 'dist\BUILD-INFO.txt'
+
+      - name: Upload all-in-one build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MM-PS5-WEB-APP-STUDIO-v0.2-FULL-WINDOWS
+          path: |
+            dist/MM-PS5-WEB-APP-STUDIO-v0.2-FULL.exe
+            dist/BUILD-INFO.txt
+            dist/selftest/SELF-TEST-PASS.txt
+            dist/selftest/output/**/*.elf
+          if-no-files-found: error
+          compression-level: 0
