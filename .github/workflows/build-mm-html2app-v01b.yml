@@ -1,0 +1,157 @@
+name: Build MM HTML2APP v0.1b
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-mm-html2app-v01b.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout temporary build inputs
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate MM HTML2APP source
+        shell: pwsh
+        run: |
+          python .github/mm-html2app/prepare_html2app.py
+          python -m py_compile buildsrc/MM-HTML2APP.py
+
+      - name: Stage official PS5 Payload SDK v0.43
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path engine\sdk | Out-Null
+          Invoke-WebRequest 'https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip' -OutFile sdk.zip
+          $h = (Get-FileHash sdk.zip -Algorithm SHA256).Hash.ToLower()
+          if ($h -ne 'a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb') { throw "SDK SHA mismatch: $h" }
+          Expand-Archive sdk.zip sdk-unpack -Force
+          $wrapper = Get-ChildItem sdk-unpack -Filter prospero-clang.cmd -Recurse | Where-Object { $_.FullName -match '[\\/]win[\\/]prospero-clang\.cmd$' } | Select-Object -First 1
+          if (-not $wrapper) { throw 'prospero-clang.cmd not found' }
+          $sdkRoot = Split-Path (Split-Path $wrapper.FullName -Parent) -Parent
+          Copy-Item (Join-Path $sdkRoot '*') engine\sdk -Recurse -Force
+          if (!(Test-Path engine\sdk\win\prospero-lld.exe)) { throw 'prospero-lld.exe missing' }
+
+      - name: Stage LLVM 18.1.8 Windows engine
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $PWD 'LLVM-18.1.8-win64.exe'
+          $full = Join-Path $PWD 'llvmfull'
+          Invoke-WebRequest 'https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe' -OutFile $installer
+          $p = Start-Process $installer -ArgumentList '/S',"/D=$full" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "LLVM installer failed: $($p.ExitCode)" }
+          New-Item -ItemType Directory -Force engine\llvm\bin | Out-Null
+          Copy-Item "$full\bin\clang.exe" engine\llvm\bin\clang.exe -Force
+          Copy-Item "$full\bin\ld.lld.exe" engine\llvm\bin\ld.lld.exe -Force
+          Get-ChildItem "$full\bin\*.dll" | Copy-Item -Destination engine\llvm\bin -Force
+          $resource = (& "$full\bin\clang.exe" -print-resource-dir).Trim()
+          $rel = $resource.Substring($full.Length).TrimStart('\','/')
+          $dst = Join-Path 'engine\llvm' $rel
+          New-Item -ItemType Directory -Force (Split-Path $dst -Parent) | Out-Null
+          Copy-Item $resource $dst -Recurse -Force
+          & engine\llvm\bin\clang.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded clang cannot execute' }
+
+      - name: Stage official websrv v0.34 and loader sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force engine\websrv\src\ps5 | Out-Null
+          Invoke-WebRequest 'https://github.com/ps5-payload-dev/websrv/releases/download/v0.34/websrv-ps5.elf' -OutFile engine\websrv\websrv-ps5.elf
+          $h = (Get-FileHash engine\websrv\websrv-ps5.elf -Algorithm SHA256).Hash.ToLower()
+          if ($h -ne '54730c867c6e1148536fdcb370e63a7762d989ea87b62488ad4caff64d43f263') { throw "websrv SHA mismatch: $h" }
+          git clone --depth 1 --branch v0.34 https://github.com/ps5-payload-dev/websrv.git websrv-src
+          Copy-Item websrv-src\src\ps5\elfldr.c engine\websrv\src\ps5\elfldr.c
+          Copy-Item websrv-src\src\ps5\elfldr.h engine\websrv\src\ps5\elfldr.h
+          Copy-Item websrv-src\src\ps5\pt.c engine\websrv\src\ps5\pt.c
+          Copy-Item websrv-src\src\ps5\pt.h engine\websrv\src\ps5\pt.h
+          Copy-Item websrv-src\LICENSE engine\websrv\LICENSE
+          python -c "from pathlib import Path; b=Path('engine/websrv/websrv-ps5.elf').read_bytes(); assert b.count(b'FAKE00000')>0; print('WEBSRV_TITLE_MARKER_COUNT=',b.count(b'FAKE00000'))"
+
+      - name: Install Windows packaging dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pillow
+
+      - name: Mirror embedded engine for source self-test
+        shell: pwsh
+        run: Copy-Item engine buildsrc\engine -Recurse -Force
+
+      - name: Source HTML-to-PS5-APP self-test
+        shell: pwsh
+        run: |
+          python buildsrc/MM-HTML2APP.py --self-test --self-test-output source-selftest
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path source-selftest\SELF-TEST-FAIL.txt) { Get-Content source-selftest\SELF-TEST-FAIL.txt }
+            throw 'Source self-test failed'
+          }
+          Get-Content source-selftest\SELF-TEST-PASS.txt
+
+      - name: Build all-in-one Windows EXE
+        shell: pwsh
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name "MM-HTML2APP-v0.1-ALL-IN-ONE" --add-data "engine;engine" buildsrc/MM-HTML2APP.py
+
+      - name: Execute packaged EXE HTML-to-PS5-APP self-test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'dist\MM-HTML2APP-v0.1-ALL-IN-ONE.exe').Path
+          $self = Join-Path $PWD 'dist\selftest'
+          $p = Start-Process -FilePath $exe -ArgumentList @('--self-test','--self-test-output',$self) -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path "$self\SELF-TEST-FAIL.txt") { Get-Content "$self\SELF-TEST-FAIL.txt" }
+            throw "Packaged EXE self-test failed: $($p.ExitCode)"
+          }
+          if (!(Test-Path "$self\SELF-TEST-PASS.txt")) { throw 'SELF-TEST-PASS.txt missing' }
+          Get-Content "$self\SELF-TEST-PASS.txt"
+
+      - name: Validate final artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'dist\MM-HTML2APP-v0.1-ALL-IN-ONE.exe'
+          $b=[IO.File]::ReadAllBytes((Resolve-Path $exe))
+          if ($b[0] -ne 0x4d -or $b[1] -ne 0x5a) { throw 'EXE is not PE/MZ' }
+          $elf = Get-ChildItem dist\selftest -Filter '*.elf' | Select-Object -First 1
+          if (-not $elf) { throw 'Self-test ELF missing' }
+          $eb=[IO.File]::ReadAllBytes($elf.FullName)
+          if ($eb[0] -ne 0x7f -or $eb[1] -ne 0x45 -or $eb[2] -ne 0x4c -or $eb[3] -ne 0x46) { throw 'Self-test output is not ELF' }
+          if ($eb[18] -ne 0x3e -or $eb[19] -ne 0) { throw 'Self-test ELF is not x86_64' }
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  MM-HTML2APP-v0.1-ALL-IN-ONE.exe" | Set-Content 'dist\MM-HTML2APP-v0.1-ALL-IN-ONE.exe.sha256'
+          @"
+          MM_HTML2APP=v0.1-ALL-IN-ONE
+          WINDOWS_EXE=PASS
+          INPUT_FORMAT=SINGLE_HTML
+          DUALSENSE_RUNTIME=INLINE_IN_HTML_COPY
+          EMBEDDED_PS5_SDK=v0.43
+          EMBEDDED_LLVM=18.1.8
+          EMBEDDED_WEBSRV=v0.34
+          WEBSRV_SHA256=54730c867c6e1148536fdcb370e63a7762d989ea87b62488ad4caff64d43f263
+          EXE_SELF_TEST_HTML_TO_PS5_ELF=PASS
+          MEDIA_INSTALL_BOOTSTRAP_STATIC_VALIDATION=PASS
+          PS5_HARDWARE=NOT_TESTED
+          "@ | Set-Content 'dist\BUILD-INFO.txt'
+
+      - name: Upload MM HTML2APP Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MM-HTML2APP-v0.1-ALL-IN-ONE
+          path: |
+            dist/MM-HTML2APP-v0.1-ALL-IN-ONE.exe
+            dist/MM-HTML2APP-v0.1-ALL-IN-ONE.exe.sha256
+            dist/BUILD-INFO.txt
+            dist/selftest/**
+          if-no-files-found: error
