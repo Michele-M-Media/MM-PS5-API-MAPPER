@@ -26,7 +26,8 @@ jobs:
       - name: Generate MM HTML2APP v0.1.1 source
         shell: pwsh
         run: |
-          python .github/mm-html2app-v011/prepare_v011.py
+          python .github/mm-html2app-v011/fix_prepare.py
+          python .github/mm-html2app-v011/prepare_v011_fixed.py
           python -m py_compile buildsrc/MM-HTML2APP.py
 
       - name: Stage official PS5 Payload SDK v0.43
